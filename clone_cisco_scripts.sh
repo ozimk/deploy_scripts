@@ -30,18 +30,23 @@ place_from_local() {
 try_gh_clone() {
   local url="$1"
   if ! command -v gh >/dev/null 2>&1; then
+    warn "GitHub CLI not found; skipping GitHub clone"
     return 1
   fi
 
-  if gh auth status >/dev/null 2>&1; then
-    info "Cloning via GitHub CLI: $url"
-    gh repo clone "$url" "$TARGET_DIR" || return 1
-    return 0
-  else
-    warn "gh present but not authenticated; skipping gh clone"
-    return 1
+  if ! gh auth status >/dev/null 2>&1; then
+    info "GitHub not authenticated; starting login flow..."
+    gh auth login || {
+      warn "GitHub authentication failed or cancelled."
+      return 1
+    }
   fi
+
+  info "Cloning via GitHub CLI: $url"
+  gh repo clone "$url" "$TARGET_DIR" || return 1
+  return 0
 }
+
 
 try_git_https_clone() {
   local url="$1"
