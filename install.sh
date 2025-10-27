@@ -1,72 +1,66 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-export INSTALL_REPO_URL="https://github.com/ozimk/cisco_scripts-deployment.git"
+
+# -------- CONFIG you should set --------
+# owner/repo of your PRIVATE main repo (NOT the deploy repo)
+# Example: ozimk/cisco_scripts-deployment
+export INSTALL_REPO_SLUG="${INSTALL_REPO_SLUG:-ozimk/cisco_scripts-deployment}"
+# Where the app gets installed:
+export TARGET_DIR="${TARGET_DIR:-/usr/local/cisco_scripts}"
+# ---------------------------------------
 
 LOG_FILE="/var/log/cisco_scripts_install.log"
 
+bold() { printf "\033[1m%s\033[0m\n" "$*"; }
 info() { printf "[INFO] %s\n" "$*" | tee -a "$LOG_FILE"; }
 warn() { printf "[WARN] %s\n" "$*" | tee -a "$LOG_FILE"; }
 err()  { printf "[ERROR] %s\n" "$*" | tee -a "$LOG_FILE"; }
 
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    err "Must run as root"
+    err "This installer must run as root. Try: sudo $0"
     exit 1
   fi
 }
 
-apt_cleanup_bad_gh_source() {
-  local bad="/etc/apt/sources.list.d/archive_uri-https_cli_github_com_packages-noble.list"
-  if [[ -f "$bad" ]]; then
-    warn "Removing broken GitHub CLI apt source ($bad)"
-    rm -f "$bad"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+normalize_line_endings() {
+  info "Normalizing line endings in deploy scripts"
+  if ! command -v dos2unix >/dev/null 2>&1; then
+    apt-get update -y >/dev/null 2>&1 || true
+    apt-get install -y dos2unix >/dev/null 2>&1 || true
   fi
+  find "$SCRIPT_DIR" -maxdepth 1 -type f -name "*.sh" -exec dos2unix {} \; >/dev/null 2>&1 || true
+  chmod +x "$SCRIPT_DIR"/*.sh
 }
 
-install_packages() {
-  export DEBIAN_FRONTEND=noninteractive
-  apt_cleanup_bad_gh_source
-  info "Updating apt package index"
-  apt-get update -y || true
+trap 'err "Installer failed (line $LINENO). See $LOG_FILE for details."' ERR
 
-  info "Installing base packages (apache2, php, extensions, git, dialog)"
-  # IMPROVEMENT: Removed '|| true' on essential packages to ensure installation success
-  apt-get install -y \
-    apache2 php libapache2-mod-php php-curl php-ssh2 \
-    git dialog
+main() {
+  require_root
+  mkdir -p "$(dirname "$LOG_FILE")"; touch "$LOG_FILE"; chmod 644 "$LOG_FILE"
 
-  # Non-essential packages can still use '|| true' if we want to proceed without them
-  apt-get install -y open-vm-tools open-vm-tools-desktop || true
+  bold "=== cisco_scripts installer ==="
+  info "Logging to: $LOG_FILE"
+  info "Script dir: $SCRIPT_DIR"
+  info "Target dir: $TARGET_DIR"
+  info "Repo slug : $INSTALL_REPO_SLUG"
 
-  if ! command -v gh >/dev/null 2>&1; then
-    info "Installing GitHub CLI (gh) via apt if possible"
-    if apt-cache policy gh | grep -q Candidate; then
-      apt-get install -y gh || true
-    fi
-  fi
+  normalize_line_endings
 
-  if ! command -v gh >/dev/null 2>&1; then
-    if command -v snap >/dev/null 2>&1; then
-      info "Installing GitHub CLI (gh) via snap fallback"
-      snap install gh --classic || warn "Snap install of gh failed; proceeding without gh"
-    else
-      warn "Snap not available; skipping gh"
-    fi
-  fi
+  bash "$SCRIPT_DIR/install_packages.sh" 2>&1 | tee -a "$LOG_FILE"
 
-  info "Enabling Apache on boot"
-  systemctl enable apache2 || true
+  INSTALL_REPO_SLUG="$INSTALL_REPO_SLUG" TARGET_DIR="$TARGET_DIR" \
+    bash "$SCRIPT_DIR/clone_cisco_scripts.sh" 2>&1 | tee -a "$LOG_FILE"
+
+  TARGET_DIR="$TARGET_DIR" bash "$SCRIPT_DIR/set_environment.sh" 2>&1 | tee -a "$LOG_FILE"
+
+  TARGET_DIR="$TARGET_DIR" bash "$SCRIPT_DIR/setup_apache.sh" 2>&1 | tee -a "$LOG_FILE"
+
+  bold "=== Install complete ==="
+  info "Open: http://localhost/"
+  info "New shells will load CISCO_PATH automatically. For this shell: source /etc/profile.d/cisco.sh"
 }
 
-verify_php_mod() {
-  info "Ensuring Apache PHP module is enabled"
-  if ! apache2ctl -M 2>/dev/null | grep -qi 'php'; then
-    a2enmod php* || true
-    systemctl restart apache2 || true
-  fi
-}
-
-require_root
-install_packages
-verify_php_mod
-info "Package installation step complete"
+main "$@"
