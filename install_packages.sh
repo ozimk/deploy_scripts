@@ -9,50 +9,47 @@ err()  { printf "[ERROR] %s\n" "$*" | tee -a "$LOG_FILE"; }
 
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    err "Must run as root"; exit 1
+    err "Must run as root"
+    exit 1
   fi
 }
 
-apt_cleanup_bad_gh_source() {
-  local bad="/etc/apt/sources.list.d/archive_uri-https_cli_github_com_packages-noble.list"
-  if [[ -f "$bad" ]]; then
-    warn "Removing broken GitHub CLI apt source ($bad)"
-    rm -f "$bad"
+install_github_cli() {
+  if command -v gh >/dev/null 2>&1; then
+    info "GitHub CLI already installed"
+    return 0
   fi
+
+  info "Installing GitHub CLI (gh)..."
+
+  rm -f /etc/apt/sources.list.d/github-cli.list /etc/apt/keyrings/githubcli-archive-keyring.gpg || true
+
+  mkdir -p /etc/apt/keyrings
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | gpg --dearmor -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] \
+    https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+
+  apt-get update -y
+  apt-get install -y gh
 }
 
-install_packages() {
+install_base_packages() {
   export DEBIAN_FRONTEND=noninteractive
-  apt_cleanup_bad_gh_source
   info "Updating apt package index"
   apt-get update -y
 
-  info "Installing base packages (apache2, php, extensions, git, dialog, gh if available)"
-  apt-get install -y \
-    apache2 php libapache2-mod-php php-curl php-ssh2 \
-    git dialog || true
+  info "Installing core packages (apache2, php, git, dialog)"
+  apt-get install -y apache2 php libapache2-mod-php php-curl php-ssh2 git dialog curl gpg
 
-  # Try to install GitHub CLI from apt if present (no snap)
-  if ! command -v gh >/dev/null 2>&1; then
-    if apt-cache policy gh | grep -q Candidate; then
-      apt-get install -y gh || warn "Failed to install gh from APT; you may need to install gh manually."
-    else
-      warn "gh not available from APT on this system; please install GitHub CLI manually if needed."
-    fi
-  fi
-
-  info "Enabling Apache on boot"
+  info "Enabling Apache PHP module and service"
+  a2enmod php* >/dev/null 2>&1 || true
   systemctl enable apache2 || true
-
-  info "Ensuring Apache PHP module is enabled"
-  if ! apache2ctl -M 2>/dev/null | grep -qi 'php'; then
-    a2enmod php* || true
-    systemctl restart apache2 || true
-  else
-    systemctl restart apache2 || true
-  fi
+  systemctl restart apache2 || true
 }
 
 require_root
-install_packages
+install_base_packages
+install_github_cli
 info "Package installation step complete"
