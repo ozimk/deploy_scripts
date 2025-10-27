@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+export INSTALL_REPO_URL="https://github.com/ozimk/cisco_scripts-deployment.git"
 
 LOG_FILE="/var/log/cisco_scripts_install.log"
 
