@@ -38,7 +38,11 @@ main() {
     webroot="$TARGET_DIR/web"
   else
     warn "No html/ or web/ directory found under $TARGET_DIR. Apache will serve default page."
-    systemctl restart httpd
+    if ! systemctl restart httpd; then
+        err "Failed to start httpd.service. Run 'systemctl status httpd.service' or 'journalctl -xe' for details."
+        exit 1
+    fi
+    systemctl enable httpd || true
     return 0
   fi
 
@@ -54,24 +58,43 @@ main() {
   ln -s "$webroot" /var/www/html
   info "Linked /var/www/html -> $webroot"
 
-  # DNF/RHEL httpd config path
-  local apache_conf_dest="/etc/httpd/conf/httpd.conf"
+  
+  info "Creating new, compatible Apache config at /etc/httpd/conf.d/cisco-scripts.conf"
+  
+  # We create a new config file with *only* the settings we need.
+  cat > /etc/httpd/conf.d/cisco-scripts.conf <<'EOF'
+#
+# Custom config for Cisco Scripts
+#
+# This file is created by the setup_apache.sh script
+# to apply the settings from the repo's apache2.conf
+# in a way that is compatible with RHEL's httpd.
+#
 
-  local repo_conf_src=""
-  if [[ -f "$TARGET_DIR/httpd.conf" ]]; then
-    repo_conf_src="$TARGET_DIR/httpd.conf"
-  elif [[ -f "$TARGET_DIR/apache2.conf" ]]; then
-    repo_conf_src="$TARGET_DIR/apache2.conf"
-    warn "Found 'apache2.conf'. Linking it, but 'httpd.conf' is preferred for DNF-based systems."
+# Set the web root directory permissions and options
+<Directory /var/www/html/>
+    SetEnv CISCO_PATH "/usr/local/cisco_scripts"
+    DirectoryIndex index.php
+    Options Indexes FollowSymLinks
+    AllowOverride None
+    Require all granted
+</Directory>
+
+# We also need to fix the permissions for the /var/www directory itself
+# to allow the FollowSymLinks option.
+<Directory /var/www>
+    AllowOverride None
+    Require all granted
+</Directory>
+EOF
+
+  info "Attempting to restart Apache (httpd)..."
+  if ! systemctl restart httpd; then
+      err "Failed to start httpd.service. This is unexpected."
+      err "Please run 'systemctl status httpd.service' or 'journalctl -xe' to see the exact error."
+      exit 1
   fi
-
-  if [[ -n "$repo_conf_src" ]]; then
-    backup_if_exists "$apache_conf_dest"
-    ln -sf "$repo_conf_src" "$apache_conf_dest"
-    info "Symlinked Apache config to $repo_conf_src"
-  fi
-
-  systemctl restart httpd
+  
   systemctl enable httpd || true
   info "Apache (httpd) restarted and enabled"
 }
