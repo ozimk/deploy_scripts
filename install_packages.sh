@@ -22,31 +22,29 @@ install_github_cli() {
 
   info "Installing GitHub CLI (gh)..."
 
-  rm -f /etc/apt/sources.list.d/github-cli.list /etc/apt/keyrings/githubcli-archive-keyring.gpg || true
+  # Add the official GitHub CLI repository
+  if ! dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo; then
+    err "Failed to add GitHub CLI repository"
+    exit 1
+  fi
 
-  mkdir -p /etc/apt/keyrings
-  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-    | gpg --dearmor -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
-
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] \
-    https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
-
-  apt-get update -y
-  apt-get install -y gh
+  # Install gh
+  dnf install -y gh
 }
 
 install_base_packages() {
-  export DEBIAN_FRONTEND=noninteractive
-  info "Updating apt package index"
-  apt-get update -y
+  info "Installing prerequisite: dnf-plugins-core (for config-manager)"
+  dnf install -y dnf-plugins-core
 
-  info "Installing core packages (apache2, php, git, dialog)"
-  apt-get install -y apache2 php libapache2-mod-php php-curl php-ssh2 git dialog curl gpg
+  info "Enabling EPEL repository (for php-pecl-ssh2)"
+  dnf install -y epel-release || warn "Could not install epel-release. This is OK if on Fedora."
 
-  info "Enabling Apache PHP module and service"
-  a2enmod php* >/dev/null 2>&1 || true
-  systemctl enable apache2 || true
-  systemctl restart apache2 || true
+  info "Installing core packages (httpd, php, git, dialog)"
+  dnf install -y httpd php php-curl php-pecl-ssh2 git dialog curl gpg
+
+  info "Enabling Apache (httpd) service"
+  systemctl enable httpd || true
+  systemctl restart httpd || true
 }
 
 require_root
