@@ -29,7 +29,9 @@ EOF
 
   # Ensure common writable dirs
   mkdir -p "$TARGET_DIR/templates" "$TARGET_DIR/networks" "$TARGET_DIR/template_trash"
-  chown -R www-data:www-data "$TARGET_DIR/templates" "$TARGET_DIR/networks" "$TARGET_DIR/template_trash"
+
+  # Changed www-data to apache
+  chown -R apache:apache "$TARGET_DIR/templates" "$TARGET_DIR/networks" "$TARGET_DIR/template_trash"
 
   # Mark bin scripts executable if present
   if [[ -d "$TARGET_DIR/bin" ]]; then
