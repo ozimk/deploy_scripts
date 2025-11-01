@@ -1,42 +1,27 @@
-#!/usr/bin/env bash
-set -Eeuo pipefail
+    #!/usr/bin/env bash
+    set -Eeuo pipefail
 
-LOG_FILE="/var/log/cisco_scripts_install.log"
-TARGET_DIR="${TARGET_DIR:-/usr/local/cisco_scripts}"
+    : "${TARGET_DIR:=/usr/local/cisco_scripts}"
+    LOG_FILE="/var/log/cisco_scripts_install.log"
+    log()  { printf "[INFO] %s\n" "$*" | tee -a "$LOG_FILE"; }  # logging only
+    err()  { printf "[ERROR] %s\n" "$*" | tee -a "$LOG_FILE"; }
+    require_root() { [[ ${EUID:-$(id -u)} -eq 0 ]] || { err "Must run as root"; exit 1; }; }
 
-info() { printf "[INFO] %s\n" "$*" | tee -a "$LOG_FILE"; }
-err()  { printf "[ERROR] %s\n" "$*" | tee -a "$LOG_FILE"; }
-
-require_root() {
-  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    err "Must run as root"; exit 1
-  fi
-}
-
-main() {
-  require_root
-  if [[ ! -d "$TARGET_DIR" ]]; then
-    err "Target dir missing: $TARGET_DIR"; exit 1
-  fi
-
-  info "Setting CISCO_PATH and PATH"
-  cat >/etc/profile.d/cisco.sh <<EOF
-# cisco_scripts environment
-export CISCO_PATH="$TARGET_DIR"
-export PATH="\$CISCO_PATH/bin:\$PATH"
+    main() {
+      require_root
+      install -d -m 0755 /etc/profile.d
+      cat >/etc/profile.d/cisco.sh <<EOF
+# Cisco Scripts env
+export CISCO_PATH="${TARGET_DIR}"
+if [ -d "\$CISCO_PATH/bin" ]; then
+  case ":\$PATH:" in
+    *:"\$CISCO_PATH/bin":*) : ;;
+    *) export PATH="\$PATH:\$CISCO_PATH/bin" ;;
+  esac
+fi
 EOF
-  chmod 644 /etc/profile.d/cisco.sh
+      chmod 0644 /etc/profile.d/cisco.sh
+      printf "[INFO] Environment file created at /etc/profile.d/cisco.sh\n" | tee -a "$LOG_FILE"
+    }
 
-  # Ensure common writable dirs
-  mkdir -p "$TARGET_DIR/templates" "$TARGET_DIR/networks" "$TARGET_DIR/template_trash"
-  
-  # Changed www-data to apache (standard user for httpd on DNF systems)
-  chown -R apache:apache "$TARGET_DIR/templates" "$TARGET_DIR/networks" "$TARGET_DIR/template_trash"
-
-  # Mark bin scripts executable if present
-  if [[ -d "$TARGET_DIR/bin" ]]; then
-    find "$TARGET_DIR/bin" -type f -print0 | xargs -0 --no-run-if-empty chmod +x
-  fi
-}
-
-main "$@"
+    main "$@"
