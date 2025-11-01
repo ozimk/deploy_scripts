@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # -------- CONFIG you should set --------
-export INSTALL_REPO_SLUG="${INSTALL_REPO_SLUG:-ozimk/cisco_scripts-deployment}"
+export INSTALL_REPO_SLUG="${INSTALL_REPO_SLUG:-https://github.com/ozimk/cisco_scripts-deployment}"
 export TARGET_DIR="${TARGET_DIR:-/usr/local/cisco_scripts}"
 # ---------------------------------------
 
@@ -25,10 +25,17 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 normalize_line_endings() {
   info "Normalizing line endings in deploy scripts"
   if ! command -v dos2unix >/dev/null 2>&1; then
-    dnf install -y dos2unix >/dev/null 2>&1 || true
+    info "dos2unix not found, attempting to install..."
+    if ! dnf install -y dos2unix; then
+      err "Failed to install dos2unix. Please install it manually and re-run."
+      exit 1
+    fi
+    info "dos2unix installed successfully."
   fi
+  
   find "$SCRIPT_DIR" -maxdepth 1 -type f -name "*.sh" -exec dos2unix {} \; >/dev/null 2>&1 || true
   chmod +x "$SCRIPT_DIR"/*.sh
+  info "Line endings normalized and scripts made executable."
 }
 
 trap 'err "Installer failed (line $LINENO). See $LOG_FILE for details."' ERR
