@@ -2,46 +2,58 @@
 set -Eeuo pipefail
 
 LOG_FILE="/var/log/cisco_scripts_install.log"
-TARGET_DIR="${TARGET_DIR:-/usr/local/cisco_scripts}"
-# This variable comes from install.sh
-INSTALL_REPO_SLUG="${INSTALL_REPO_SLUG:?INSTALL_REPO_SLUG not set}"
+: "${TARGET_DIR:=/usr/local/cisco_scripts}"
+: "${INSTALL_REPO_SLUG:=ozimk/cisco_scripts-deployment}"
+: "${BRANCH:=main}"
 
-info() { printf "[INFO] %s\n" "$*" | tee -a "$LOG_FILE"; }
-warn() { printf "[WARN] %s\n" "$*" | tee -a "$LOG_FILE"; }
+log()  { printf "[INFO] %s\n" "$*" | tee -a "$LOG_FILE"; }
 err()  { printf "[ERROR] %s\n" "$*" | tee -a "$LOG_FILE"; }
+require_root() { [[ ${EUID:-$(id -u)} -eq 0 ]] || { err "Must run as root"; exit 1; }; }
 
-require_root() {
-  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    err "Must run as root"; exit 1
+try_public_clone() {
+  local url="https://github.com/${INSTALL_REPO_SLUG}.git"
+  log "Trying public HTTPS clone: $url (branch=$BRANCH)"
+  if git ls-remote --exit-code "$url" &>/dev/null; then
+    git clone --depth 1 --branch "$BRANCH" "$url" "$TARGET_DIR"
+    return 0
   fi
+  return 1
+}
+
+try_token_clone() {
+  local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+  [[ -n "$token" ]] || return 1
+  local url="https://${token}@github.com/${INSTALL_REPO_SLUG}.git"
+  log "Trying token-based clone via HTTPS (branch=$BRANCH)"
+  git clone --depth 1 --branch "$BRANCH" "$url" "$TARGET_DIR"
+}
+
+try_gh_clone() {
+  command -v gh >/dev/null 2>&1 || return 1
+  if ! gh auth status >/dev/null 2>&1; then
+    log "gh not authenticated; attempting web login (only needed for private repos)."
+    gh auth login --hostname github.com --web || return 1
+  fi
+  log "Trying gh clone (branch=$BRANCH)"
+  gh repo clone "$INSTALL_REPO_SLUG" "$TARGET_DIR" -- --branch "$BRANCH" --depth 1
 }
 
 main() {
   require_root
+  mkdir -p "$TARGET_DIR"
 
-  if [[ -d "$TARGET_DIR" && -n "$(ls -A "$TARGET_DIR" 2>/dev/null || true)" ]]; then
-    info "Target dir already exists and is non-empty; skipping clone: $TARGET_DIR"
-    return 0
-  fi
-
-  local repo_url=""
-  # Check if the slug already looks like a full URL
-  if [[ "$INSTALL_REPO_SLUG" == http* ]]; then
-    repo_url="$INSTALL_REPO_SLUG"
+  # Prefer PUBLIC unauthenticated clone first now that the repo is public.
+  if try_public_clone; then
+    :
+  elif try_token_clone; then
+    :
+  elif try_gh_clone; then
+    :
   else
-    # Build the URL from the slug (e.g., ozimk/cisco_scripts-deployment)
-    repo_url="https://github.com/${INSTALL_REPO_SLUG}.git"
-  fi
-
-  info "Cloning public repo $repo_url into $TARGET_DIR ..."
-  
-  # Just use git clone. No 'gh' needed.
-  if ! git clone "$repo_url" "$TARGET_DIR"; then
-    err "Failed to clone public repository. Check URL: $repo_url"
+    err "Failed to clone repo. Ensure the repo exists and is public, or provide GH_TOKEN/gh auth."
     exit 1
   fi
-  
-  info "Clone complete."
+  log "Clone complete: $TARGET_DIR"
 }
 
 main "$@"
