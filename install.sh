@@ -2,10 +2,7 @@
 set -Eeuo pipefail
 
 # -------- CONFIG you should set --------
-# owner/repo of your PRIVATE main repo (NOT the deploy repo)
-# Example: ozimk/cisco_scripts-deployment
 export INSTALL_REPO_SLUG="${INSTALL_REPO_SLUG:-ozimk/cisco_scripts-deployment}"
-# Where the app gets installed:
 export TARGET_DIR="${TARGET_DIR:-/usr/local/cisco_scripts}"
 # ---------------------------------------
 
@@ -28,8 +25,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 normalize_line_endings() {
   info "Normalizing line endings in deploy scripts"
   if ! command -v dos2unix >/dev/null 2>&1; then
-    apt-get update -y >/dev/null 2>&1 || true
-    apt-get install -y dos2unix >/dev/null 2>&1 || true
+    dnf install -y dos2unix >/dev/null 2>&1 || true
   fi
   find "$SCRIPT_DIR" -maxdepth 1 -type f -name "*.sh" -exec dos2unix {} \; >/dev/null 2>&1 || true
   chmod +x "$SCRIPT_DIR"/*.sh
