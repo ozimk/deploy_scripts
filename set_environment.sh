@@ -29,8 +29,8 @@ EOF
 
   # Ensure common writable dirs
   mkdir -p "$TARGET_DIR/templates" "$TARGET_DIR/networks" "$TARGET_DIR/template_trash"
-
-  # Changed www-data to apache
+  
+  # Changed www-data to apache (standard user for httpd on DNF systems)
   chown -R apache:apache "$TARGET_DIR/templates" "$TARGET_DIR/networks" "$TARGET_DIR/template_trash"
 
   # Mark bin scripts executable if present
