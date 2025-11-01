@@ -38,7 +38,7 @@ main() {
     webroot="$TARGET_DIR/web"
   else
     warn "No html/ or web/ directory found under $TARGET_DIR. Apache will serve default page."
-    systemctl restart apache2
+    systemctl restart httpd
     return 0
   fi
 
@@ -54,16 +54,26 @@ main() {
   ln -s "$webroot" /var/www/html
   info "Linked /var/www/html -> $webroot"
 
-  # If the repo provides apache2.conf, symlink it (optional)
-  if [[ -f "$TARGET_DIR/apache2.conf" ]]; then
-    backup_if_exists "/etc/apache2/apache2.conf"
-    ln -sf "$TARGET_DIR/apache2.conf" /etc/apache2/apache2.conf
-    info "Symlinked Apache config to repo's apache2.conf"
+  # DNF/RHEL httpd config path
+  local apache_conf_dest="/etc/httpd/conf/httpd.conf"
+
+  local repo_conf_src=""
+  if [[ -f "$TARGET_DIR/httpd.conf" ]]; then
+    repo_conf_src="$TARGET_DIR/httpd.conf"
+  elif [[ -f "$TARGET_DIR/apache2.conf" ]]; then
+    repo_conf_src="$TARGET_DIR/apache2.conf"
+    warn "Found 'apache2.conf'. Linking it, but 'httpd.conf' is preferred for DNF-based systems."
   fi
 
-  systemctl restart apache2
-  systemctl enable apache2 || true
-  info "Apache restarted and enabled"
+  if [[ -n "$repo_conf_src" ]]; then
+    backup_if_exists "$apache_conf_dest"
+    ln -sf "$repo_conf_src" "$apache_conf_dest"
+    info "Symlinked Apache config to $repo_conf_src"
+  fi
+
+  systemctl restart httpd
+  systemctl enable httpd || true
+  info "Apache (httpd) restarted and enabled"
 }
 
 main "$@"
